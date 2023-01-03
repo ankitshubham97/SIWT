@@ -1,10 +1,18 @@
-# **SIWT**
+# **SIWT DEPRECATED**
+
+
+----------------------------------------
+**ATTENTION:**
+
+This repository is now deprecated and replaced by a Nx mono repository under [github.com/StakeNow/SIWT](https://github.com/StakeNow/SIWT). The change has been conducted as part of the [first milestone](https://forum.tezosagora.org/t/sign-in-with-tezos-siwt/4930) of the Tezos Foundation grant for SIWT. You can get in touch with the developers through the [StakeNow Discord](https://discord.gg/BbBQf9gEWF).
+
+---------------------------------------
 
 Sign In With Tezos (SIWT) is a library that supports the development of your decentralized application (dApp) by
 - **proving** the users ownership of the private key to the address the user signs in with,
 - adding **permissions** to use your API or FrontEnd based on the **ownership** of a Non-Fungible Token (NFT).
 
-**Table of content:**
+**Table of contents:**
 
 - [**SIWT**](#siwt)
   - [Technical concepts](#technical-concepts)
@@ -58,7 +66,7 @@ Deconstructing this message will reveal the following format:
 
 - `05`: Indicates that this is a Micheline expression
 - `01`: Indicates it is converted to bytes
-- `000000bc`: Indicates the lenght of the message in hex
+- `000000bc`: Indicates the length of the message in hex
 - `54...`: Is the actual message in bytes
 
 __This message is now ready to be signed by the user.__

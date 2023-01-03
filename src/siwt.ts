@@ -1,24 +1,35 @@
+/*
+ * Copyright (C) 2022, vDL Digital Ventures GmbH <info@vdl.digital>
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 import { verifySignature as taquitoVerifySignature } from '@taquito/utils'
 import jwt from 'jsonwebtoken'
 import type { sign as Sign, verify as Verify } from 'jsonwebtoken'
-import axios, { AxiosInstance } from 'axios'
-import { add, assoc, equals, objOf, pipe, prop, gte } from 'ramda'
+import { AxiosInstance } from 'axios'
+import { assoc, objOf, pipe, prop, always } from 'ramda'
+import { match } from 'ts-pattern'
 
 import {
   AccessControlQuery,
   SignInMessageData,
   SignInPayload,
   TokenPayload,
-  Comparator,
-  ContractLedgerItem,
   Network,
+  ConditionType,
+  AccessControlQueryDependencies,
 } from './types'
 import { constructSignPayload, generateMessageData, packMessagePayload } from './utils'
-import { ACCESS_TOKEN_EXPIRATION, API_URLS, ID_TOKEN_EXPIRATION, REFRESH_TOKEN_EXPIRATION } from './constants'
+import { ACCESS_TOKEN_EXPIRATION, ID_TOKEN_EXPIRATION, REFRESH_TOKEN_EXPIRATION } from './constants'
 import {
-  filterOwnedAssets,
-  getOwnedAssetIds,
+  validateNFTCondition,
+  validateTokenBalanceCondition,
+  validateWhitelistCondition,
+  validateXTZBalanceCondition,
 } from './utils/siwt.utils'
+import { getBalance, getLedgerFromStorage, getTokenBalance } from './data'
+import { http } from './http'
 
 export const createMessagePayload = (signatureRequestData: SignInMessageData) =>
   pipe(
@@ -36,10 +47,6 @@ export const _signIn = (http: AxiosInstance) => (baseUrl: string) => (payload: S
     url: '/signin',
     data: payload,
   })
-
-const http = axios.create({
-  timeout: 1000,
-})
 
 export const signIn = _signIn(http)
 
@@ -68,7 +75,7 @@ export const _generateAccessToken =
         sub: pkh,
       },
       process.env.ACCESS_TOKEN_SECRET as string,
-      { expiresIn: ACCESS_TOKEN_EXPIRATION }
+      { expiresIn: ACCESS_TOKEN_EXPIRATION },
     )
 export const generateAccessToken = _generateAccessToken(jwt?.sign)
 
@@ -90,42 +97,34 @@ export const _verifyRefreshToken = (verify: typeof Verify) => (refreshToken: str
   verify(refreshToken, process.env.REFRESH_TOKEN_SECRET as string)
 export const verifyRefreshToken = _verifyRefreshToken(jwt?.verify)
 
-export const getContractStorage = (network: Network) => (contractAddress: string) =>
-  axios
-    .get(`https://${API_URLS[network]}/v1/contracts/${contractAddress}/bigmaps/ledger/keys?limit=10000`)
-    .then(prop('data'))
-    .catch(console.log)
+export const _queryAccessControl = (deps: AccessControlQueryDependencies) => async (query: AccessControlQuery) => {
+  const {
+    network = Network.ghostnet,
+    parameters: { pkh },
+    test: { type },
+  } = query
+  const { getLedgerFromStorage, getBalance, getTokenBalance, whitelist } = deps
+  try {
+    const testResults = await match(type)
+      .with(ConditionType.nft, () => validateNFTCondition(getLedgerFromStorage)(query))
+      .with(ConditionType.xtzBalance, () => validateXTZBalanceCondition(getBalance)(query))
+      .with(ConditionType.tokenBalance, () => validateTokenBalanceCondition(getTokenBalance)(query))
+      .with(ConditionType.whitelist, () => validateWhitelistCondition(whitelist)(query))
+      .otherwise(always(Promise.resolve({ passed: false })))
 
-export const _queryAccessControl =
-  (contractStorage: (network: Network) => (x: string) => Promise<ContractLedgerItem[]>) =>
-  async ({ contractAddress, network = Network.ithacanet, parameters: { pkh }, test: { comparator, value } }: AccessControlQuery) => {
-    try {
-      const storage = await contractStorage(network)(contractAddress)
-      const ownedAssets = filterOwnedAssets(pkh as string)(storage)
-      
-      const compareList = {
-        [Comparator.equals]: equals(prop('length')(ownedAssets))(value),
-        [Comparator.greater]: gte(prop('length')(ownedAssets) as number)(value),
-      }
-
-      const ownedAssetIds = getOwnedAssetIds(ownedAssets)
-
-      return {
-        contractAddress,
-        network,
-        pkh,
-        tokens: ownedAssetIds,
-        passedTest: compareList[comparator],
-      }
-    } catch {
-      return {
-        contractAddress,
-        pkh,
-        network,
-        tokens: [],
-        passedTest: false,
-      }
+    return {
+      network,
+      pkh,
+      testResults,
     }
+  } catch (error) {
+    return error
   }
+}
 
-export const queryAccessControl = _queryAccessControl(getContractStorage)
+export const queryAccessControl = _queryAccessControl({
+  getLedgerFromStorage,
+  getBalance,
+  getTokenBalance,
+  whitelist: [],
+})
